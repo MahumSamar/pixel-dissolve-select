@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pixel Dissolve Select</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    background: #f9f9f9;
+    font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1;
+    color: #0a0a0a;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow: hidden;
+  }
+
+  .stage {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: #f9f9f9;
+  }
+
+  /* Shifted up by half the menu height so the open state sits in the centre. */
+  .select {
+    position: relative;
+    width: 280px;
+    height: 48px;
+    transform: translateY(-114px);
+  }
+
+  .select__trigger {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 48px;
+    padding: 0 18px 0 20px;
+    border: 1px solid #dcdcdc;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .select__trigger:focus-visible {
+    border-color: #b9b9b9;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 0 0 3px rgba(0, 0, 0, 0.06);
+  }
+
+  .select__label {
+    color: #7b7b7b;
+    font-weight: 400;
+    margin-right: 10px;
+  }
+
+  .select__value {
+    font-weight: 500;
+    white-space: nowrap;
+    letter-spacing: -0.003em;
+  }
+
+  .select__chevron {
+    margin-left: auto;
+    width: 10px;
+    height: 10px;
+    flex: none;
+    transition: transform 180ms cubic-bezier(0.3, 0, 0.2, 1);
+  }
+
+  .select[data-open="true"] .select__chevron { transform: rotate(180deg); }
+
+  .select__scramble {
+    position: absolute;
+    top: 10px;
+    left: 0;
+    height: 28px;
+    pointer-events: none;
+    image-rendering: pixelated;
+    display: none;
+  }
+
+  .select__fx {
+    position: absolute;
+    z-index: 2;
+    left: -92px;
+    top: -92px;
+    pointer-events: none;
+    image-rendering: pixelated;
+  }
+
+  .select__menu {
+    position: absolute;
+    z-index: 1;
+    top: 56px;
+    left: 1px;
+    right: 1px;
+    margin: 0;
+    padding: 5px;
+    list-style: none;
+    background: #fff;
+    border-radius: 14px;
+    box-shadow:
+      0 0 0 1px rgba(0, 0, 0, 0.045),
+      0 2px 6px rgba(0, 0, 0, 0.04),
+      0 14px 34px rgba(0, 0, 0, 0.09);
+    visibility: hidden;
+    outline: none;
+  }
+
+  .select__menu[data-visible="true"] { visibility: visible; }
+
+  .select__option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 42px;
+    padding: 0 13px 0 11px;
+    border-radius: 9px;
+    font-weight: 500;
+    color: #4d4d4d;
+    letter-spacing: -0.003em;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .select__option[aria-selected="true"] {
+    font-weight: 600;
+    color: #0a0a0a;
+  }
+
+  .select__option.is-active { background: #f2f2f2; }
+
+  .select__menu[data-closing="true"] .select__option {
+    background: transparent;
+    pointer-events: none;
+  }
+
+  .select__check {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    opacity: 0;
+  }
+
+  .select__option[aria-selected="true"] .select__check { opacity: 1; }
+</style>
+</head>
+<body>
+
+<main class="stage">
+  <div class="select" id="select" data-open="false">
+    <button class="select__trigger" id="trigger" type="button"
+            aria-haspopup="listbox" aria-expanded="false" aria-controls="menu">
+      <span class="select__label">Vibe</span>
+      <span class="select__value" id="value">Obsidian Omen</span>
+      <svg class="select__chevron" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+        <path d="M1.5 3.5 5 7l3.5-3.5" stroke="#0a0a0a" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <canvas class="select__scramble" id="scramble" aria-hidden="true"></canvas>
+    </button>
+
+    <canvas class="select__fx" id="fx" aria-hidden="true"></canvas>
+
+    <ul class="select__menu" id="menu" role="listbox" aria-label="Vibe" tabindex="-1"></ul>
+  </div>
+</main>
+
+<script>
+(() => {
+  const THEMES = [
+    { name: 'Aurora Veil',   palette: ['#7c3aed', '#9b5cf6', '#c084fc', '#22d3ee', '#2dd4bf', '#6d28d9'] },
+    { name: 'Ember Rite',    palette: ['#ff4d00', '#ff6a00', '#ff8f1f', '#ffb020', '#e8300c', '#f97316'] },
+    { name: 'Obsidian Omen', palette: ['#0f0e0e', '#221f20', '#2e2a2b', '#3d3839', '#575052', '#1a1718'] },
+    { name: 'Tidecaller',    palette: ['#2662dd', '#1d54d6', '#2f74ea', '#1e8fe6', '#2aa3ee', '#1747c9'] },
+    { name: 'Verdant Sigil', palette: ['#4fd60f', '#62de1e', '#7be83a', '#3cc800', '#96f05a', '#55d900'] }
+  ];
+
+  const hexToRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  THEMES.forEach((t) => { t.rgb = t.palette.map(hexToRgb); });
+
+  // Geometry (CSS px). Everything sits on the 4px particle grid.
+  const W = 280, TRIGGER_H = 48, GAP = 8, CELL = 4;
+  const PAD_X = 92, PAD_TOP = 92, PAD_BOTTOM = 72;
+  const BG = [249, 249, 249], WHITE = [255, 255, 255];
+  const OPEN_MS = 820, CLOSE_MS = 440, SCRAMBLE_MS = 420, TICK_MS = 42;
+
+  const root = document.getElementById('select');
+  const trigger = document.getElementById('trigger');
+  const valueEl = document.getElementById('value');
+  const menu = document.getElementById('menu');
+  const fx = document.getElementById('fx');
+  const scramble = document.getElementById('scramble');
+  const fxCtx = fx.getContext('2d');
+  const scCtx = scramble.getContext('2d');
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  let selected = 2;
+  let active = -1;
+  let state = 'closed'; // closed | opening | open | closing
+  let fxRaf = 0, scRaf = 0;
+  let menuH = 220, cols = 0, rows = 0, img = null;
+
+  const CHECK = '<svg class="select__check" viewBox="0 0 14 14" fill="none" aria-hidden="true">' +
+    '<path d="M2.5 7.4 5.6 10.5 11.5 4" stroke="#0a0a0a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  THEMES.forEach((t, i) => {
+    const li = document.createElement('li');
+    li.className = 'select__option';
+    li.id = 'opt-' + i;
+    li.setAttribute('role', 'option');
+    li.setAttribute('aria-selected', String(i === selected));
+    li.innerHTML = '<span>' + t.name + '</span>' + CHECK;
+    li.addEventListener('mouseenter', () => setActive(i));
+    li.addEventListener('mouseleave', () => setActive(-1));
+    li.addEventListener('click', () => choose(i));
+    menu.appendChild(li);
+  });
+  const options = [...menu.children];
+
+  function layout() {
+    menuH = menu.offsetHeight;
+    const w = W + PAD_X * 2;
+    const h = Math.ceil((PAD_TOP + TRIGGER_H + GAP + menuH + PAD_BOTTOM) / CELL) * CELL;
+    cols = w / CELL;
+    rows = h / CELL;
+    fx.width = cols;
+    fx.height = rows;
+    fx.style.width = w + 'px';
+    fx.style.height = h + 'px';
+    img = fxCtx.createImageData(cols, rows);
+  }
+  layout();
+
+  /* ---------- helpers ---------- */
+
+  function hash(x, y, k) {
+    let n = Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(k, 1442695041) | 0;
+    n = Math.imul(n ^ (n >>> 13), 1274126177);
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+  }
+  const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+  const sstep = (a, b, v) => { const t = clamp01((v - a) / (b - a)); return t * t * (3 - 2 * t); };
+
+  function put(data, i, c, toWhite) {
+    data[i]     = c[0] + (255 - c[0]) * toWhite;
+    data[i + 1] = c[1] + (255 - c[1]) * toWhite;
+    data[i + 2] = c[2] + (255 - c[2]) * toWhite;
+    data[i + 3] = 255;
+  }
+
+  /* ---------- menu particles ----------
+     The canvas sits above the menu and below the trigger. Unrevealed menu
+     cells are painted in the page colour, so the real DOM shows through
+     cell by cell behind the swarm. Local y = 0 is the trigger's bottom edge. */
+
+  function drawOpen(p, tick, pal) {
+    const data = img.data;
+    data.fill(0);
+    const mTop = GAP, mBot = GAP + menuH;
+    const full = mBot + 56 + 180 + 10;
+    const front = full * p;
+    const vee = 0.78 * (1 - sstep(0.32, 0.7, p));       // V shape flattens out
+    const uMax = 1.45 - 0.3 * sstep(0.3, 0.6, p);   // wings pull in
+    const fade = sstep(0.4, 0.62, p);                 // swarm bleaches to white
+
+    for (let cy = 0; cy < rows; cy++) {
+      const y = cy * CELL + CELL / 2 - PAD_TOP - TRIGGER_H;
+      for (let cx = 0; cx < cols; cx++) {
+        const x = cx * CELL + CELL / 2 - PAD_X;
+        const u = Math.abs(x - W / 2) / (W / 2);
+        const s1 = hash(cx, cy, 1), s2 = hash(cx, cy, 2);
+        const f = hash(cx, cy, 100 + tick), c = hash(cx, cy, 300 + tick);
+        const F = front * (1 - vee * Math.pow(Math.min(1, u / 1.35), 0.9)) + (s1 - 0.5) * 14;
+        const B = Math.min(56, 8 + front * 0.5) * (1 - 0.35 * Math.min(u, 1.3));
+        const R = 120 + (s2 - 0.5) * 60;
+        const d = y - F;
+        const g = (-d - B) / R; // 0 just behind the swarm, 1 fully revealed
+        const inMenu = x > 0 && x < W && y > mTop && y < mBot;
+        const inShadow = x > -40 && x < W + 40 && y > 0 && y < mBot + 56;
+        const i = (cy * cols + cx) * 4;
+        const lateral = 1 - sstep(uMax - 0.35, uMax, u + (s2 - 0.5) * 0.15);
+
+        if (inMenu) {
+          if (d > -B * 0.5) put(data, i, BG, 0);
+          else if (g < 1) {
+            if (g > 0 && f < 0.45 * Math.pow(1 - g, 1.5)) put(data, i, pal[(c * pal.length) | 0], 0.55 + 0.4 * g);
+            else put(data, i, WHITE, 0);
+          }
+        } else if (inShadow && d > -B) {
+          put(data, i, BG, 0);
+        } else if (g > 0 && g < 0.4 && y > -12 && f < 0.22 * (1 - g / 0.4) * (1 - fade) * lateral) {
+          put(data, i, pal[(c * pal.length) | 0], 0.5);
+        }
+
+        if (d <= 0 && d >= -B && y > -12 && y < mBot + 6 + s2 * 14) {
+          const e = -d / B;
+          const dens = (0.55 + 0.42 * sstep(0, 0.25, e)) * (1 - 0.5 * sstep(0.7, 1, e)) * lateral * (1 - 0.7 * fade);
+          if (f < dens) put(data, i, pal[(c * pal.length) | 0], fade * 0.75);
+        }
+      }
+    }
+    fxCtx.putImageData(img, 0, 0);
+  }
+
+  function drawClose(p, tick, pal) {
+    const data = img.data;
+    data.fill(0);
+    const mTop = GAP, mBot = GAP + menuH;
+    const G = (mBot + 12) + (-TRIGGER_H - 56 - (mBot + 12)) * p;
+    const body = 150 * (1 - 0.45 * p);
+    const uMax = 1.4 - 0.25 * p;
+    const endFade = 1 - sstep(0.72, 1, p);
+
+    for (let cy = 0; cy < rows; cy++) {
+      const y = cy * CELL + CELL / 2 - PAD_TOP - TRIGGER_H;
+      for (let cx = 0; cx < cols; cx++) {
+        const x = cx * CELL + CELL / 2 - PAD_X;
+        const u = Math.abs(x - W / 2) / (W / 2);
+        const s1 = hash(cx, cy, 1), s2 = hash(cx, cy, 2);
+        const f = hash(cx, cy, 100 + tick), c = hash(cx, cy, 300 + tick);
+        const e = y - (G + (s1 - 0.5) * 22); // > 0 once the swarm front has passed
+        const tail = body * (1 - 0.7 * Math.min(1, (u * u) / 1.6));
+        const inMenu = x > 0 && x < W && y > mTop && y < mBot;
+        const inShadow = x > -40 && x < W + 40 && y > 0 && y < mBot + 56;
+        const i = (cy * cols + cx) * 4;
+
+        if (inMenu) {
+          if (e > 0) put(data, i, BG, 0);
+          else if (e > -34 && s2 < 0.6 * (1 + e / 34)) put(data, i, WHITE, 0);
+        } else if (inShadow && e > -10) {
+          put(data, i, BG, 0);
+        }
+
+        if (e > -16 && e < tail) {
+          const lateral = 1 - sstep(uMax - 0.4, uMax, u + (s2 - 0.5) * 0.2);
+          const dens = 0.92 * sstep(-16, 8, e) * (1 - sstep(0.55 * tail, tail, e)) *
+                       lateral * endFade * (y < -TRIGGER_H ? 0.6 : 1);
+          if (f < dens) put(data, i, pal[(c * pal.length) | 0], inMenu && e < 14 ? s2 * 0.6 : 0);
+        }
+      }
+    }
+    fxCtx.putImageData(img, 0, 0);
+  }
+
+  function clearFx() {
+    cancelAnimationFrame(fxRaf);
+    fxCtx.clearRect(0, 0, cols, rows);
+  }
+
+  function animate(duration, draw, done) {
+    cancelAnimationFrame(fxRaf);
+    const start = performance.now();
+    draw(0, 0);
+    const step = (now) => {
+      const t = now - start;
+      if (t >= duration) { fxCtx.clearRect(0, 0, cols, rows); done(); return; }
+      draw(t / duration, Math.floor(t / TICK_MS));
+      fxRaf = requestAnimationFrame(step);
+    };
+    fxRaf = requestAnimationFrame(step);
+  }
+
+  /* ---------- value scramble ----------
+     White cells erase the old label, the text swaps underneath at the
+     midpoint, then the cells clear again while tinted noise flickers over it. */
+
+  function scrambleTo(text, pal) {
+    cancelAnimationFrame(scRaf);
+    const cs = getComputedStyle(valueEl);
+    scCtx.font = cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+    const oldW = valueEl.offsetWidth;
+    const newW = Math.ceil(scCtx.measureText(text).width);
+    const S = 2, padX = 6, H = 28;
+    const w = Math.ceil((Math.max(oldW, newW) + padX * 2) / S) * S;
+    const c = w / S, r = H / S;
+    scramble.width = c;
+    scramble.height = r;
+    scramble.style.width = w + 'px';
+    scramble.style.left = (valueEl.offsetLeft - padX) + 'px';
+    scramble.style.display = 'block';
+    const sImg = scCtx.createImageData(c, r);
+    const start = performance.now();
+    let swapped = false;
+
+    const step = (now) => {
+      const p = (now - start) / SCRAMBLE_MS;
+      if (p >= 0.5 && !swapped) { valueEl.textContent = text; swapped = true; }
+      if (p >= 1) { scramble.style.display = 'none'; return; }
+      const tick = Math.floor((now - start) / 36);
+      const k = 1 - Math.abs(2 * p - 1);
+      const cover = sstep(0, 0.7, k) * 1.05;
+      const textW = oldW + (newW - oldW) * sstep(0.3, 0.7, p);
+      const data = sImg.data;
+      data.fill(0);
+      for (let cy = 0; cy < r; cy++) {
+        const dy = Math.abs((cy + 0.5) * S - H / 2);
+        for (let cx = 0; cx < c; cx++) {
+          const x = (cx + 0.5) * S - padX;
+          const i = (cy * c + cx) * 4;
+          if (hash(cx, cy, 7) < cover) put(data, i, WHITE, 0);
+          const within = (1 - sstep(6, 11, dy)) * (x > -3 && x < textW + 3 ? 1 : 0);
+          if (hash(cx, cy, 500 + tick) < 0.36 * Math.pow(k, 0.7) * within) {
+            put(data, i, pal[(hash(cx, cy, 700 + tick) * pal.length) | 0], 0);
+          }
+        }
+      }
+      scCtx.putImageData(sImg, 0, 0);
+      scRaf = requestAnimationFrame(step);
+    };
+    scRaf = requestAnimationFrame(step);
+  }
+
+  /* ---------- state ---------- */
+
+  function setActive(i) {
+    active = i;
+    options.forEach((o, n) => o.classList.toggle('is-active', n === i));
+    if (i >= 0) trigger.setAttribute('aria-activedescendant', 'opt-' + i);
+    else trigger.removeAttribute('aria-activedescendant');
+  }
+
+  function open() {
+    if (state === 'open' || state === 'opening') return;
+    state = 'opening';
+    root.dataset.open = 'true';
+    trigger.setAttribute('aria-expanded', 'true');
+    menu.dataset.closing = 'false';
+    menu.dataset.visible = 'true';
+    setActive(-1);
+    if (reducedMotion.matches) { clearFx(); state = 'open'; return; }
+    const pal = THEMES[selected].rgb;
+    animate(OPEN_MS, (p, tick) => drawOpen(p, tick, pal), () => { state = 'open'; });
+  }
+
+  function close() {
+    if (state === 'closed' || state === 'closing') return;
+    state = 'closing';
+    root.dataset.open = 'false';
+    trigger.setAttribute('aria-expanded', 'false');
+    menu.dataset.closing = 'true';
+    setActive(-1);
+    const finish = () => { menu.dataset.visible = 'false'; state = 'closed'; };
+    if (reducedMotion.matches) { clearFx(); finish(); return; }
+    const pal = THEMES[selected].rgb;
+    animate(CLOSE_MS, (p, tick) => drawClose(p, tick, pal), finish);
+  }
+
+  function choose(i) {
+    if (state !== 'open' && state !== 'opening') return;
+    const changed = i !== selected;
+    selected = i;
+    options.forEach((o, n) => o.setAttribute('aria-selected', String(n === i)));
+    if (changed) {
+      if (reducedMotion.matches) valueEl.textContent = THEMES[i].name;
+      else scrambleTo(THEMES[i].name, THEMES[i].rgb);
+    }
+    close();
+  }
+
+  trigger.addEventListener('click', () => {
+    if (state === 'open' || state === 'opening') close(); else open();
+  });
+
+  trigger.addEventListener('keydown', (ev) => {
+    const isOpen = state === 'open' || state === 'opening';
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      if (!isOpen) { open(); setActive(selected); return; }
+      const dir = ev.key === 'ArrowDown' ? 1 : -1;
+      const from = active < 0 ? selected : active;
+      setActive((from + dir + options.length) % options.length);
+    } else if ((ev.key === 'Enter' || ev.key === ' ') && isOpen && active >= 0) {
+      ev.preventDefault();
+      choose(active);
+    } else if (ev.key === 'Escape' && isOpen) {
+      close();
+    }
+  });
+
+  document.addEventListener('pointerdown', (ev) => {
+    if (!root.contains(ev.target)) close();
+  });
+
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(layout);
+})();
+</script>
+</body>
+</html>
